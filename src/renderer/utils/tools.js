@@ -13,16 +13,27 @@ export const setUserApi = source => {
   })
 }
 
+export const onShowUserApiUpdateAlert = callback => {
+  rendererOn(NAMES.mainWindow.user_api_show_update_alert, callback)
+  return () => {
+    rendererOff(callback)
+  }
+}
+
+export const setAllowShowUserApiUpdateAlert = (id, enable) => {
+  return rendererInvoke(NAMES.mainWindow.user_api_set_allow_update_alert, { id, enable })
+}
+
 export const saveMyList = data => {
   rendererSend(NAMES.mainWindow.save_playlist, {
     type: 'myList',
-    data: data,
+    data: JSON.stringify(data),
   })
 }
 export const saveDownloadList = list => {
   rendererSend(NAMES.mainWindow.save_playlist, {
     type: 'downloadList',
-    data: list,
+    data: JSON.stringify(list),
   })
 }
 
@@ -46,6 +57,10 @@ export const setIgnoreMouseEvents = ignore => {
 
 export const getEnvParams = () => {
   return rendererInvoke(NAMES.mainWindow.get_env_params)
+}
+
+export const clearEnvParamsDeeplink = () => {
+  return rendererSend(NAMES.mainWindow.clear_env_params_deeplink)
 }
 
 export const onUpdateAvailable = callback => {
@@ -101,7 +116,7 @@ export const getSearchHistoryList = () => {
 }
 
 export const onUserApiStatus = callback => {
-  rendererOn(NAMES.mainWindow.user_api_status, (event, { status, message, apiInfo }) => callback({ status, message, apiInfo }))
+  rendererOn(NAMES.mainWindow.user_api_status, callback)
   return () => {
     rendererOff(callback)
   }
@@ -129,7 +144,7 @@ export const setDesktopLyricInfo = (type, data, info) => {
   })
 }
 export const onGetDesktopLyricInfo = callback => {
-  rendererOn(NAMES.mainWindow.get_lyric_info, (event, info) => callback(event, info))
+  rendererOn(NAMES.mainWindow.get_lyric_info, callback)
   return () => {
     rendererOff(callback)
   }
@@ -294,4 +309,24 @@ export const hotKeySetConfig = (config) => {
 
 export const hotKeyGetStatus = () => {
   return rendererInvoke(NAMES.hotKey.status)
+}
+
+export const onTaskbarThumbarClick = callback => {
+  rendererOn(NAMES.mainWindow.taskbar_on_thumbar_button_click, callback)
+  return () => {
+    rendererOff(callback)
+  }
+}
+export const setTaskbarThumbnailClip = (clip) => {
+  return rendererInvoke(NAMES.mainWindow.taskbar_set_thumbnail_clip, clip)
+}
+export const setTaskbarThumbarButtons = (buttons) => {
+  rendererSend(NAMES.mainWindow.taskbar_set_thumbar_buttons, buttons)
+}
+
+export const onSystemThemeChange = callback => {
+  rendererOn(NAMES.mainWindow.system_theme_change, callback)
+  return () => {
+    rendererOff(callback)
+  }
 }

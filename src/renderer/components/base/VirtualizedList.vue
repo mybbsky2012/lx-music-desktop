@@ -1,5 +1,5 @@
 <template>
-  <component :is="containerEl" :class="containerClass" ref="dom_scrollContainer" style="height: 100%; overflow: auto; position: relative; display: block; contain: strict;">
+  <component :is="containerEl" :class="containerClass" tabindex="0" ref="dom_scrollContainer" style="outline: none; height: 100%; overflow: auto; position: relative; display: block; contain: strict;">
     <component :is="contentEl" :class="contentClass" :style="contentStyle">
       <div v-for="item in views" :key="item.key" :style="item.style">
         <slot name="default" v-bind="{ item: item.item, index: item.index }" />
@@ -141,8 +141,8 @@ export default {
       const scrollContainerHeight = dom_scrollContainer.value.clientHeight
       const currentEndIndex = currentStartIndex + Math.ceil(scrollContainerHeight / itemHeight)
       const continuous = currentStartIndex <= endIndex && currentEndIndex >= startIndex
-      const currentStartRenderIndex = Math.max(Math.floor(currentScrollTop / itemHeight) - props.outsideNum, 0)
-      const currentEndRenderIndex = currentStartIndex + Math.ceil(scrollContainerHeight / itemHeight) + props.outsideNum
+      const currentStartRenderIndex = Math.max(currentStartIndex - props.outsideNum, 0)
+      const currentEndRenderIndex = currentEndIndex + props.outsideNum + 1
       // console.log(continuous)
       // debugger
       if (continuous) {
@@ -161,7 +161,7 @@ export default {
         //   // console.log('scroll up')
         //   views.value = createList(currentStartRenderIndex, currentEndRenderIndex)
         // } else return
-        if (currentScrollTop == scrollTop) return
+        if (currentScrollTop == scrollTop && endIndex >= currentEndIndex) return
         views.value = createList(currentStartRenderIndex, currentEndRenderIndex)
       } else {
         views.value = createList(currentStartRenderIndex, currentEndRenderIndex)
@@ -215,19 +215,28 @@ export default {
       return isScrolling ? scrollToValue : dom_scrollContainer.value.scrollTop
     }
 
+    const handleResize = () => {
+      setTimeout(updateView)
+    }
+
     const contentStyle = computed(() => ({
       display: 'block',
       height: props.list.length * props.itemHeight + 'px',
     }))
 
-    watch(() => props.itemHeight, updateView)
-    watch(() => props.list, (list) => {
+    const handleReset = list => {
       cachedList = Array(list.length)
       startIndex = -1
       endIndex = -1
       nextTick(() => {
         updateView()
       })
+    }
+    watch(() => props.itemHeight, () => {
+      handleReset(props.list)
+    })
+    watch(() => props.list, (list) => {
+      handleReset(list)
     }, {
       deep: true,
     })
@@ -238,9 +247,11 @@ export default {
       startIndex = -1
       endIndex = -1
       updateView()
+      window.addEventListener('resize', handleResize)
     })
     onBeforeUnmount(() => {
       dom_scrollContainer.value.removeEventListener('scroll', onScroll)
+      window.removeEventListener('resize', handleResize)
       if (cancelScroll) cancelScroll()
     })
 

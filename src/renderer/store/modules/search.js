@@ -1,5 +1,6 @@
 import music from '../../utils/music'
 import { markRawList } from '@renderer/utils/vueTools'
+import { deduplicationList } from '@renderer/utils'
 
 const sources = []
 const sourceList = {}
@@ -85,7 +86,7 @@ sources.push({
 })
 
 // state
-const state = {
+const state = window.state = {
   sourceList,
   list: [],
   text: '',
@@ -150,7 +151,9 @@ const mutations = {
     state.text = text
   },
   setList(state, datas) {
+    if (!state.text) return
     let source = state.sourceList[datas.source]
+    datas.list = deduplicationList(datas.list)
     source.list = markRawList(datas.list)
     source.total = datas.total
     source.allPage = datas.allPage
@@ -158,6 +161,7 @@ const mutations = {
     source.limit = datas.limit
   },
   setLists(state, { results, page }) {
+    if (!state.text) return
     let pages = []
     let total = 0
     let limit = 0
@@ -170,6 +174,7 @@ const mutations = {
       total += source.total
       // limit = Math.max(source.limit, limit)
     }
+    list = deduplicationList(list)
     state.allPage = Math.max(...pages)
     state.total = total
     state.limit = limit
@@ -184,7 +189,7 @@ const mutations = {
       state.sourceList[source].total = 0
       state.sourceMaxPage[source] = 0
     }
-    state.list.length = []
+    state.list = []
     state.page = 0
     state.allPage = 0
     state.total = 0

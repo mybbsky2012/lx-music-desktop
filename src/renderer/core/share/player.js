@@ -6,7 +6,9 @@ export const musicInfo = window.musicInfo = reactive({
   img: null,
   lrc: null,
   tlrc: null,
+  rlrc: null,
   lxlrc: null,
+  rawlrc: null,
   url: null,
   name: '',
   singer: '',
@@ -104,7 +106,7 @@ export const getPlayIndex = (listId, musicInfo, isTempPlay) => {
   }
 
   const list = getList(listId)
-  if (list?.length) {
+  if (list?.length && musicInfo) {
     if (musicInfo.key) { // 已下载的歌曲
       const currentKey = musicInfo.key
       playIndex = list.findIndex(m => m.key == currentKey)
@@ -162,7 +164,16 @@ export const clearPlayedList = () => {
 
 export const tempPlayList = reactive([])
 export const addTempPlayList = (list) => {
-  tempPlayList.push(...list.map(({ musicInfo, listId }) => ({ musicInfo, listId, isTempPlay: true })))
+  const topList = []
+  const bottomList = list.filter(({ isTop, ...musicInfo }) => {
+    if (isTop) {
+      topList.push(musicInfo)
+      return false
+    }
+    return true
+  })
+  if (topList.length) tempPlayList.unshift(...topList.map(({ musicInfo, listId }) => ({ musicInfo, listId, isTempPlay: true })))
+  if (bottomList.length) tempPlayList.push(...bottomList.map(({ musicInfo, listId }) => ({ musicInfo, listId, isTempPlay: true })))
 }
 export const removeTempPlayList = (index) => {
   tempPlayList.splice(index, 1)

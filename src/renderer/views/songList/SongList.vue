@@ -11,10 +11,10 @@ div(:class="$style.container")
           h3(:title="listDetail.info.name || selectListInfo.name") {{listDetail.info.name || selectListInfo.name}}
           p(:title="listDetail.info.desc || selectListInfo.desc") {{listDetail.info.desc || selectListInfo.desc}}
         div(:class="$style.songListHeaderRight")
-          base-btn(:class="$style.headerRightBtn" :disabled="detailLoading" @click="playSongListDetail") {{$t('list__play')}}
+          base-btn(:class="$style.headerRightBtn" :disabled="detailLoading" @click="playSongListDetail()") {{$t('list__play')}}
           base-btn(:class="$style.headerRightBtn" :disabled="detailLoading" @click="addSongListDetail") {{$t('list__collect')}}
           base-btn(:class="$style.headerRightBtn" @click="hideListDetail") {{$t('back')}}
-      material-online-list(ref="songList" @toggle-page="handleToggleListDetailPage" :page="listDetail.page" :limit="listDetail.limit" :total="listDetail.total"
+      material-online-list(ref="songList" @play-list="playSongListDetail" @toggle-page="handleToggleListDetailPage" :page="listDetail.page" :limit="listDetail.limit" :total="listDetail.total"
         :list="listDetail.list" :noItem="isGetDetailFailed ? $t('list__load_failed') : $t('list__loading')")
   transition(enter-active-class="animated-fast fadeIn" leave-active-class="animated-fast fadeOut")
     div(:class="$style.songListContainer" v-show="!isVisibleListDetail")
@@ -33,7 +33,13 @@ div(:class="$style.container")
                       //- img(:src="item.img")
                     div(:class="$style.right" :src="item.img")
                       h4 {{item.name}}
-                      p(:class="$style.play_count") {{item.play_count}}
+                      div(:class="$style.songlist_info")
+                        span(v-if="item.total != null")
+                          svg-icon(name="music")
+                          | {{item.total}}
+                        span
+                          svg-icon(name="headphones")
+                          | {{item.play_count}}
                       p(:class="$style.author") {{item.author}}
                   li(:class="$style.item" style="cursor: default;" v-for="i in spaceNum")
                 div(:class="$style.pagination")
@@ -56,7 +62,6 @@ div(:class="$style.container")
 
 <script>
 import { mapGetters, mapMutations, mapActions } from 'vuex'
-import { scrollTo } from '@renderer/utils'
 import TagList from './components/TagList'
 import { tempList } from '@renderer/core/share/list'
 export default {
@@ -81,7 +86,6 @@ export default {
       importSongListText: '',
       listWidth: 645,
       isGetDetailFailed: false,
-      isInitedTagListWidth: false,
       detailLoading: false,
     }
   },
@@ -98,7 +102,7 @@ export default {
         case 'tx':
         case 'mg':
         case 'kg':
-        case 'xm':
+        // case 'xm':
           list.push({
             name: this.$t('songlist__open_list', { name: this.sourceInfo.sources.find(s => s.id == this.source).name }),
             id: 'importSongList',
@@ -123,7 +127,7 @@ export default {
       this.$nextTick(() => {
         this.getList(1).then(() => {
           this.$nextTick(() => {
-            scrollTo(this.$refs.dom_scrollContent, 0)
+            this.$refs.dom_scrollContent.scrollTo(0, 0)
           })
         })
       })
@@ -140,7 +144,7 @@ export default {
       this.$nextTick(() => {
         this.getList(1).then(() => {
           this.$nextTick(() => {
-            scrollTo(this.$refs.dom_scrollContent, 0)
+            this.$refs.dom_scrollContent.scrollTo(0, 0)
           })
         })
       })
@@ -159,20 +163,36 @@ export default {
         this.sortId = this.sorts[0] && this.sorts[0].id
       }
     },
-    'setting.themeId'() {
+    'setting.theme.id'() {
       this.setTagListWidth()
     },
   },
   mounted() {
     this.source = this.setting.songList.source
+    if (!this.sourceInfo.sourceIds.includes(this.source)) this.source = this.sourceInfo.sourceIds[0]
     this.isToggleSource = true
     this.tagInfo = this.setting.songList.tagInfo
     this.sortId = this.setting.songList.sortId
     if (!this.isVisibleListDetail) this.setTagListWidth()
     this.listenEvent()
+
+    if (this.$route.query.source && (this.$route.query.id || this.$route.query.url)) {
+      this.handleRouteParams(this.$route.query.id, this.$route.query.url, this.$route.query.source)
+      this.$router.replace({
+        path: '/songList',
+      })
+    }
   },
   beforeUnmount() {
     this.unlistenEvent()
+  },
+  beforeRouteUpdate(to) {
+    if (to.query.source && (to.query.id || to.query.url)) {
+      this.handleRouteParams(to.query.id, to.query.url, to.query.source)
+      return {
+        path: '/songList',
+      }
+    }
   },
   methods: {
     ...mapMutations(['setSongList']),
@@ -187,9 +207,17 @@ export default {
     }),
     listenEvent() {
       window.eventHub.on('key_backspace_down', this.handle_key_backspace_down)
+      window.addEventListener('resize', this.handleSetTagWidth)
     },
     unlistenEvent() {
       window.eventHub.off('key_backspace_down', this.handle_key_backspace_down)
+      window.removeEventListener('resize', this.handleSetTagWidth)
+    },
+    handleSetTagWidth() {
+      setTimeout(() => {
+        this.setTagListWidth()
+        setTimeout(this.setTagListWidth, 100)
+      })
     },
     handle_key_backspace_down({ event }) {
       if (!this.isVisibleListDetail ||
@@ -201,15 +229,19 @@ export default {
         event.target.classList.contains('key-bind')) return
       this.hideListDetail()
     },
+    handleRouteParams(id, url, source) {
+      if (!id) id = decodeURIComponent(url)
+      this.handleGetSongListDetail(id, source)
+    },
     handleToggleListPage(page) {
       this.getList(page).then(() => {
         this.$nextTick(() => {
-          scrollTo(this.$refs.dom_scrollContent, 0)
+          this.$refs.dom_scrollContent.scrollTo(0, 0)
         })
       })
     },
     handleToggleListDetailPage(page) {
-      this.handleGetListDetail(this.selectListInfo.id, page).then(() => {
+      this.handleGetListDetail(this.selectListInfo.id, this.selectListInfo.source, page).then(() => {
         this.$nextTick(() => {
           this.$refs.songList.scrollToTop()
         })
@@ -220,7 +252,7 @@ export default {
       this.setSelectListInfo(this.listData.list[index])
       this.setVisibleListDetail(true)
       this.$nextTick(() => {
-        this.handleGetListDetail(this.selectListInfo.id, 1)
+        this.handleGetListDetail(this.selectListInfo.id, this.source, 1)
       })
     },
     // handleFlowBtnClick(action) {
@@ -246,40 +278,44 @@ export default {
     handleImportSongListEvent({ action }) {
       switch (action) {
         case 'submit':
-          this.handleGetSongListDetail()
+          this.handleGetSongListDetail(this.importSongListText, this.source)
           break
         // case 'blur':
         //   break
       }
     },
-    handleGetSongListDetail() {
-      if (!this.importSongListText.length) return
+    handleGetSongListDetail(id, source) {
+      if (!id.length) return
+      console.log(id, source)
       this.setSelectListInfo({
         play_count: null,
-        id: this.importSongListText,
+        id,
         author: '',
         name: '',
         img: null,
         desc: '',
-        source: this.source,
+        source,
       })
       this.setVisibleListDetail(true)
-      this.handleGetListDetail(this.importSongListText, 1)
+      this.handleGetListDetail(id, source, 1)
     },
     setTagListWidth() {
-      this.isInitedTagListWidth = true
+      if (this.isVisibleListDetail) return
       this.listWidth = this.$refs.tagList.$el.clientWidth + this.$refs.tab.$el.clientWidth + 2
     },
-    handleGetListDetail(id, page) {
+    handleGetListDetail(id, source, page) {
+      this.detailLoading = true
       this.isGetDetailFailed = false
-      return this.getListDetail({ id, page }).catch(err => {
+      return this.getListDetail({ id, source, page }).catch(err => {
         this.isGetDetailFailed = true
         return Promise.reject(err)
+      }).finally(() => {
+        this.detailLoading = false
       })
     },
     async fetchList() {
       this.detailLoading = true
-      return this.getListDetailAll({ source: this.source, id: this.selectListInfo.id }).finally(() => {
+      return this.getListDetailAll({ source: this.listDetail.source, id: this.listDetail.id }).finally(() => {
         this.detailLoading = false
       })
     },
@@ -295,14 +331,14 @@ export default {
         sourceListId: this.listDetail.id,
       })
     },
-    async playSongListDetail() {
+    async playSongListDetail(index = 0) {
       if (!this.listDetail.info.name) return
       const id = `${this.listDetail.source}__${this.listDetail.id}`
       let isPlayingList = false
       if (this.listDetail.list?.length) {
         this.setTempList({
           list: [...this.listDetail.list],
-          index: 0,
+          index,
           id,
         })
         isPlayingList = true
@@ -319,7 +355,7 @@ export default {
       } else {
         this.setTempList({
           list,
-          index: 0,
+          index,
           id,
         })
       }
@@ -372,7 +408,9 @@ export default {
   align-items: center;
   padding-top: 20%;
 }
-
+.songList {
+  scroll-behavior: smooth;
+}
 .song-list-header {
   display: flex;
   flex-flow: row nowrap;
@@ -497,7 +535,10 @@ export default {
     .mixin-ellipsis-2;
   }
 }
-.play_count {
+.songlist_info {
+  display: flex;
+  flex-flow: row nowrap;
+  gap: 15px;
   margin-top: 12px;
   font-size: 12px;
   .mixin-ellipsis-1;
@@ -505,6 +546,9 @@ export default {
   line-height: 1.2;
   // text-indent: 24px;
   color: @color-theme_2-font-label;
+  svg {
+    margin-right: 2px;
+  }
 }
 .author {
   margin-top: 6px;

@@ -2,7 +2,7 @@
 div(:class="$style.search")
   //- transition
   div(:class="$style.header")
-    base-tab(:class="$style.tab" :list="sources" align="left" item-key="id" item-name="name" v-model="searchSourceId")
+    base-tab(:class="$style.tab" :list="sources" align="left" item-key="id" item-name="name" @change="handleSourceChange" v-model="searchSourceId")
   div(:class="$style.main")
     div(:class="$style.list" v-show="isLoading || listInfo.list.length")
       div.thead(:class="$style.thead")
@@ -22,7 +22,8 @@ div(:class="$style.search")
               td.nobreak.center(style="width: 5%; padding-left: 3px; padding-right: 3px;" :class="$style.noSelect" @click.stop) {{index + 1}}
               td.break
                 span.select {{item.name}}
-                span.badge.badge-theme-success(:class="[$style.labelQuality, $style.noSelect]" v-if="item._types.ape || item._types.flac || item._types.wav") {{$t('tag__lossless')}}
+                span.badge.badge-theme-success(:class="[$style.labelQuality, $style.noSelect]" v-if="item._types.flac32bit") {{$t('tag__lossless_24bit')}}
+                span.badge.badge-theme-success(:class="[$style.labelQuality, $style.noSelect]" v-else-if="item._types.ape || item._types.flac || item._types.wav") {{$t('tag__lossless')}}
                 span.badge.badge-theme-info(:class="[$style.labelQuality, $style.noSelect]" v-else-if="item._types['320k']") {{$t('tag__high_quality')}}
                 span(:class="[$style.labelSource, $style.noSelect]" v-if="searchSourceId == 'all'") {{item.source}}
               td.break(style="width: 22%;")
@@ -43,17 +44,17 @@ div(:class="$style.search")
         p {{$t('list__loading')}}
     transition(enter-active-class="animated-fast fadeIn" leave-active-class="animated-fast fadeOut")
       div(v-show="!isLoading && !listInfo.list.length" :class="$style.noitem")
-        div.scroll(:class="$style.noitemListContainer" v-if="setting.search.isShowHotSearch || (setting.search.isShowHistorySearch && setting.search.isShowHistorySearch.length)")
+        div.scroll(:class="$style.noitemListContainer" v-if="setting.search.isShowHotSearch || (setting.search.isShowHistorySearch && historyList.length)")
           dl(:class="[$style.noitemList, $style.noitemHotSearchList]" v-if="setting.search.isShowHotSearch")
             dt(:class="$style.noitemListTitle") {{$t('search__hot_search')}}
             dd(:class="$style.noitemListItem" @click="handleNoitemSearch(item)" v-for="item in hotSearchList") {{item}}
           dl(:class="$style.noitemList" v-if="setting.search.isShowHistorySearch && historyList.length")
             dt(:class="$style.noitemListTitle")
               span {{$t('history_search')}}
-              span(:class="$style.historyClearBtn" @click="clearHistory" :tips="$t('history_clear')")
+              span(:class="$style.historyClearBtn" @click="clearHistory" :aria-label="$t('history_clear')")
                 svg(version='1.1' xmlns='http://www.w3.org/2000/svg' xlink='http://www.w3.org/1999/xlink' height='100%' viewBox='0 0 512 512' space='preserve')
                   use(xlink:href='#icon-eraser')
-            dd(:class="$style.noitemListItem" v-for="(item, index) in historyList" @contextmenu="removeHistory(index)" :key="index + item" @click="handleNoitemSearch(item)" :tips="$t('history_remove')") {{item}}
+            dd(:class="$style.noitemListItem" v-for="(item, index) in historyList" @contextmenu="removeHistory(index)" :key="index + item" @click="handleNoitemSearch(item)" :aria-label="$t('history_remove')") {{item}}
         div(v-else :class="$style.noitem_list")
           p {{$t('search__welcome')}}
   //- common-flow-btn(:show="isShowEditBtn && (searchSourceId == 'all' || assertApiSupport(searchSourceId))" :remove-btn="false" @btn-click="handleFlowBtnClick")
@@ -66,7 +67,7 @@ div(:class="$style.search")
 
 <script>
 import { mapGetters, mapActions, mapMutations } from 'vuex'
-import { scrollTo, clipboardWriteText, assertApiSupport, openUrl } from '@renderer/utils'
+import { clipboardWriteText, assertApiSupport, openUrl } from '@renderer/utils'
 import musicSdk from '@renderer/utils/music'
 import { defaultList } from '@renderer/core/share/list'
 import { getList } from '@renderer/core/share/utils'
@@ -107,14 +108,31 @@ export default {
         },
       },
       isLoading: false,
+      searchId: null,
     }
   },
-  beforeRouteUpdate(to, from, next) {
-    if (to.query.text === undefined) return
-    this.text = to.query.text
-    this.page = 1
-    this.handleSearch(this.text, this.page)
-    next()
+  beforeRouteUpdate(to, from) {
+    if (to.query.source && (this.sourceList[to.query.source] || to.query.source == 'all')) {
+      if (this.setting.search.searchSource != to.query.source) {
+        this.setSearchSource({
+          searchSource: to.query.source,
+        })
+      }
+      if (this.searchSourceId != to.query.source) {
+        this.searchSourceId = to.query.source
+      }
+      this.$nextTick(() => {
+        this.handleGetHotSearch()
+      })
+    }
+    if (to.query.text != null && this.text != to.query.text) {
+      this.text = to.query.text
+    }
+
+    this.$nextTick(() => {
+      this.page = 1
+      this.handleSearch(this.text, this.page)
+    })
   },
   created() {
     this.listenEvent()
@@ -124,18 +142,20 @@ export default {
   },
   mounted() {
     // console.log('mounted')
-
-    // 处理搜索源不存在时页面报错的问题
-    if (!this.sourceList[this.setting.search.searchSource] && this.setting.search.searchSource != 'all') {
+    if (this.$route.query.source && (this.sourceList[this.$route.query.source] || this.$route.query.source == 'all')) {
+      this.setSearchSource({
+        searchSource: this.$route.query.source,
+      })
+    } else if (!this.sourceList[this.setting.search.searchSource] && this.setting.search.searchSource != 'all') { // 处理搜索源不存在时页面报错的问题
       this.setSearchSource({
         searchSource: 'kw',
       })
     }
     this.searchSourceId = this.setting.search.searchSource
-    if (this.$route.query.text === undefined) {
+    if (this.$route.query.text == null) {
       this.text = this.$store.getters['search/searchText']
       this.page = this.listInfo.page
-    } else if (this.$route.query.text === '') {
+    } else if (this.$route.query.text == '') {
       this.clearList()
     } else {
       this.text = this.$route.query.text
@@ -155,18 +175,6 @@ export default {
     // },
     'listInfo.list'() {
       this.removeAllSelect()
-    },
-    searchSourceId(n) {
-      if (n === this.setting.search.searchSource) return
-      if (this.text !== '') this.isLoading = true
-      this.$nextTick(() => {
-        this.page = 1
-        this.handleSearch(this.text, this.page)
-        this.handleGetHotSearch()
-      })
-      this.setSearchSource({
-        searchSource: n,
-      })
     },
   },
   computed: {
@@ -253,14 +261,20 @@ export default {
       this.handleSelectAllData()
     },
     handleSearch(text, page) {
-      if (text === '') return this.clearList()
+      const searchId = this.searchId = `${this.searchSourceId}__${page}__${text}`
+      if (text === '') {
+        this.isLoading = false
+        return this.clearList()
+      }
       this.isLoading = true
       this.search({ text, page, limit: this.listInfo.limit }).then(data => {
+        if (this.searchId != searchId) return
         this.page = page
         this.$nextTick(() => {
-          scrollTo(this.$refs.dom_scrollContent, 0)
+          this.$refs.dom_scrollContent.scrollTo(0, 0)
         })
       }).finally(() => {
+        if (this.searchId != searchId) return
         this.isLoading = false
       })
     },
@@ -417,7 +431,7 @@ export default {
       this.getHotSearch(this.setting.search.searchSource)
     },
     handleNoitemSearch(text) {
-      this.$router.push({
+      this.$router.replace({
         path: 'search',
         query: {
           text,
@@ -512,6 +526,15 @@ export default {
           break
       }
     },
+    handleSourceChange(source) {
+      this.$router.replace({
+        path: 'search',
+        query: {
+          text: this.text,
+          source,
+        },
+      })
+    },
   },
 }
 </script>
@@ -554,6 +577,8 @@ export default {
 .tbody {
   flex: auto;
   overflow-y: auto;
+  scroll-behavior: smooth;
+
   td {
     font-size: 12px;
     :global(.badge) {

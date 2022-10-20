@@ -1,46 +1,157 @@
 <template>
-<div :class="['right', $style.right]">
-  <div :class="['lyric', $style.lyric, { [$style.draging]: isMsDown }]" @wheel="handleWheel" @mousedown="handleLyricMouseDown" ref="dom_lyric">
-    <div :class="$style.lyricSpace"></div>
-    <div :class="[$style.lyricText]" ref="dom_lyric_text"></div>
-    <div :class="$style.lyricSpace"></div>
-  </div>
+<div :class="['right', $style.right]" :style="lrcFontSize">
   <transition enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
-    <div :class="[$style.lyricSelectContent, 'select', 'scroll']" v-if="isShowLrcSelectContent" @contextmenu="handleCopySelectText">
+    <div v-show="!isShowLrcSelectContent"
+      :class="['lyric', $style.lyric, { [$style.draging]: isMsDown }, { [$style.lrcActiveZoom]: isZoomActiveLrc }]"
+      :style="lrcStyles" @wheel="handleWheel"
+      @mousedown="handleLyricMouseDown" ref="dom_lyric"
+      @contextmenu.stop="handleShowLyricMenu"
+    >
+      <div :class="['pre', $style.lyricSpace]"></div>
+      <div ref="dom_lyric_text"></div>
+      <div :class="$style.lyricSpace"></div>
+    </div>
+  </transition>
+  <transition enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
+    <div :class="$style.skip" v-if="isShowLyricProgressSetting" v-show="isStopScroll && !isShowLrcSelectContent">
+      <div :class="$style.line" ref="dom_skip_line"></div>
+      <span :class="$style.label">{{timeStr}}</span>
+      <base-btn :class="$style.skipBtn" @mouseenter="handleSkipMouseEnter" @mouseleave="handleSkipMouseLeave" @click="handleSkipPlay">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" height="50%" viewBox="0 0 170 170" space="preserve">
+          <use xlink:href="#icon-play"></use>
+        </svg>
+      </base-btn>
+    </div>
+  </transition>
+  <transition enter-active-class="animated fadeIn" leave-active-class="animated fadeOut">
+    <div :class="[$style.lyricSelectContent, 'select', 'scroll', 'lyricSelectContent']" v-if="isShowLrcSelectContent" @contextmenu="handleCopySelectText">
       <div v-for="(info, index) in lyric.lines" :key="index" :class="[$style.lyricSelectline, { [$style.lrcActive]: lyric.line == index }]">
         <span>{{info.text}}</span>
-        <br v-if="info.translation"/>
-        <span :class="$style.lyricSelectlineTransition">{{info.translation}}</span>
+        <template v-for="(lrc, index) in info.extendedLyrics" :key="index">
+          <br />
+          <span :class="$style.lyricSelectlineExtended">{{lrc}}</span>
+        </template>
       </div>
     </div>
   </transition>
+  <LyricMenu v-model="lyricMenuVisible" :xy="lyricMenuXY" :lyricInfo="lyricInfo" @updateLyric="handleUpdateLyric" />
 </div>
 </template>
 
 <script>
 import { clipboardWriteText } from '@renderer/utils'
 import { lyric } from '@renderer/core/share/lyric'
-import { isPlay, isShowLrcSelectContent } from '@renderer/core/share/player'
-// import { ref } from '@renderer/utils/vueTools'
+import { isFullscreen } from '@renderer/core/share'
+import { isPlay, isShowLrcSelectContent, isShowPlayComment, musicInfo as playerMusicInfo, musicInfoItem, setMusicInfo } from '@renderer/core/share/player'
+import { onMounted, onBeforeUnmount, useRefGetter, computed, reactive, ref } from '@renderer/utils/vueTools'
 import useLyric from '@renderer/utils/compositions/useLyric'
+import LyricMenu from './components/LyricMenu'
+import { player as eventPlayerNames } from '@renderer/event/names'
 
 export default {
+  components: {
+    LyricMenu,
+  },
   setup() {
+    const setting = useRefGetter('setting')
+    const isZoomActiveLrc = computed(() => setting.value.playDetail.isZoomActiveLrc)
+    const isShowLyricProgressSetting = computed(() => setting.value.playDetail.isShowLyricProgressSetting)
+
     const {
       dom_lyric,
       dom_lyric_text,
+      dom_skip_line,
       isMsDown,
+      isStopScroll,
+      timeStr,
       handleLyricMouseDown,
       handleWheel,
-    } = useLyric({ isPlay, lyric })
+      handleSkipPlay,
+      handleSkipMouseEnter,
+      handleSkipMouseLeave,
+    } = useLyric({ isPlay, lyric, isShowLyricProgressSetting })
+
+    const lyricMenuVisible = ref(false)
+    const lyricMenuXY = reactive({
+      x: 0,
+      y: 0,
+    })
+    const lyricInfo = reactive({
+      lyric: '',
+      tlyric: '',
+      rlyric: '',
+      lxlyric: '',
+      rawlyric: '',
+      musicInfo: null,
+    })
+    const updateMusicInfo = () => {
+      lyricInfo.lyric = playerMusicInfo.lrc
+      lyricInfo.tlyric = playerMusicInfo.tlrc
+      lyricInfo.rlyric = playerMusicInfo.rlrc
+      lyricInfo.lxlyric = playerMusicInfo.lxlrc
+      lyricInfo.rawlyric = playerMusicInfo.rawlrc
+      lyricInfo.musicInfo = musicInfoItem.value
+    }
+    const handleShowLyricMenu = event => {
+      updateMusicInfo()
+      lyricMenuXY.x = event.pageX
+      lyricMenuXY.y = event.pageY
+      lyricMenuVisible.value = true
+    }
+    const handleUpdateLyric = ({ lyric, tlyric, rlyric, lxlyric, offset }) => {
+      setMusicInfo({
+        lrc: lyric,
+        tlrc: tlyric,
+        rlrc: rlyric,
+        lxlrc: lxlyric,
+      })
+      // console.log(offset)
+      window.eventHub.emit(eventPlayerNames.updateLyricOffset, offset)
+    }
+
+    const lrcStyles = computed(() => {
+      return {
+        textAlign: setting.value.playDetail.style.align,
+      }
+    })
+    const lrcFontSize = computed(() => {
+      let size = setting.value.playDetail.style.fontSize / 100
+      if (isFullscreen.value) size = size *= 1.4
+      return {
+        '--playDetail-lrc-font-size': (isShowPlayComment.value ? size * 0.82 : size) + 'rem',
+      }
+    })
+
+    onMounted(() => {
+      window.eventHub.on(eventPlayerNames.updateLyric, updateMusicInfo)
+    })
+    onBeforeUnmount(() => {
+      window.eventHub.off(eventPlayerNames.updateLyric, updateMusicInfo)
+    })
+
     return {
       dom_lyric,
       dom_lyric_text,
+      dom_skip_line,
       isMsDown,
+      timeStr,
       handleLyricMouseDown,
       handleWheel,
+      handleSkipPlay,
+      handleSkipMouseEnter,
+      handleSkipMouseLeave,
       lyric,
+      lrcStyles,
+      lrcFontSize,
       isShowLrcSelectContent,
+      isShowLyricProgressSetting,
+      isZoomActiveLrc,
+      isStopScroll,
+      lyricMenuVisible,
+      lyricMenuXY,
+      handleShowLyricMenu,
+      handleUpdateLyric,
+      lyricInfo,
     }
   },
   methods: {
@@ -63,34 +174,13 @@ export default {
   // padding: 0 30px;
   position: relative;
   transition: flex-basis @transition-theme;
-
-  &:before {
-    position: absolute;
-    z-index: 1;
-    top: 0;
-    left: 0;
-    content: ' ';
-    height: 100px;
-    width: 100%;
-    background-image: linear-gradient(0deg,rgba(255,255,255,0) 0%,@color-theme_2-background_1 95%);
-    pointer-events: none;
-  }
-  &:after {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    content: ' ';
-    height: 100px;
-    width: 100%;
-    background-image: linear-gradient(-180deg,rgba(255,255,255,0) 0%,@color-theme_2-background_1 95%);
-    pointer-events: none;
-  }
 }
 .lyric {
   text-align: center;
   height: 100%;
   overflow: hidden;
-  font-size: 16px;
+  font-size: var(--playDetail-lrc-font-size, 16px);
+  -webkit-mask-image: linear-gradient(transparent 0%, #fff 20%,  #fff 80%, transparent 100%);
   cursor: grab;
   &.draging {
     cursor: grabbing;
@@ -98,11 +188,13 @@ export default {
   :global {
     .lrc-content {
       line-height: 1.2;
-      margin: 16px 0;
+      padding: calc(var(--playDetail-lrc-font-size, 16px) / 2) 1px;
       overflow-wrap: break-word;
       color: @color-player-detail-lyric;
+      transition: @transition-theme;
+      transition-property: padding;
 
-      .translation {
+      .extended {
         transition: @transition-theme !important;
         transition-property: font-size, color;
         font-size: .9em;
@@ -118,14 +210,13 @@ export default {
         .line {
           color: @color-theme;
         }
-        .translation {
-          font-size: .94em;
+        .extended {
           color: @color-theme;
         }
-        span {
-          // color: @color-theme;
-          font-size: 1.1em;
-        }
+        // span {
+        //   // color: @color-theme;
+        //   font-size: 1.1em;
+        // }
       }
 
       span {
@@ -153,6 +244,65 @@ export default {
   //   font-size: 1.2em;
   // }
 }
+.lrcActiveZoom {
+  :global {
+    .lrc-content {
+      &.active {
+        .extended {
+          font-size: .94em;
+        }
+        span {
+          font-size: 1.1em;
+        }
+      }
+    }
+  }
+}
+
+.skip {
+  position: absolute;
+  top: calc(38% + var(--playDetail-lrc-font-size, 16px) + 4px);
+  left: 0;
+  // height: 6px;
+  width: 100%;
+  pointer-events: none;
+  // opacity: .5;
+  .line {
+    border-top: 2px dotted @color-player-detail-lyric-active;
+    opacity: .15;
+    margin-right: 30px;
+    -webkit-mask-image: linear-gradient(90deg, transparent 0%, transparent 15%, #fff 100%);
+  }
+  .label {
+    position: absolute;
+    right: 30px;
+    top: -14px;
+    line-height: 1;
+    font-size: 12px;
+    color: @color-player-detail-lyric-active;
+    opacity: .7;
+  }
+  .skipBtn {
+    position: absolute;
+    right: 0;
+    top: 0;
+    transform: translateY(-50%);
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none !important;
+    pointer-events: initial;
+    transition: @transition-theme;
+    transition-property: opacity;
+    opacity: .8;
+    &:hover {
+      opacity: .6;
+    }
+  }
+}
 .lyricSelectContent {
   position: absolute;
   left: 0;
@@ -161,7 +311,6 @@ export default {
   height: 100%;
   width: 100%;
   font-size: 16px;
-  background-color: @color-theme_2-background_1;
   z-index: 10;
   color: @color-player-detail-lyric;
 
@@ -172,7 +321,7 @@ export default {
     transition-property: color, font-size;
     line-height: 1.3;
   }
-  .lyricSelectlineTransition {
+  .lyricSelectlineExtended {
     font-size: 14px;
   }
   .lrc-active {
@@ -186,21 +335,13 @@ export default {
 
 each(@themes, {
   :global(#root.@{value}) {
-    .right {
-      &:before {
-        background-image: linear-gradient(0deg,rgba(255,255,255,0) 0%,~'@{color-@{value}-theme_2-background_1}' 95%);
-      }
-      &:after {
-        background-image: linear-gradient(-180deg,rgba(255,255,255,0) 0%,~'@{color-@{value}-theme_2-background_1}' 95%);
-      }
-    }
     .lyric {
       :global {
         .lrc-content {
           color: ~'@{color-@{value}-player-detail-lyric}';
 
           &.active {
-            .translation {
+            .extended {
               color: ~'@{color-@{value}-player-detail-lyric-active}';
             }
             .line {
@@ -217,8 +358,15 @@ each(@themes, {
     // .lrc-active {
     //   color: ~'@{color-@{value}-theme}';
     // }
+    .skip {
+      .line {
+        border-top-color: ~'@{color-@{value}-player-detail-lyric-active}';
+      }
+      .label {
+        color:~'@{color-@{value}-player-detail-lyric-active}';
+      }
+    }
     .lyricSelectContent {
-      background-color: ~'@{color-@{value}-theme_2-background_1}';
       color: ~'@{color-@{value}-player-detail-lyric}';
       .lrc-active {
         color: ~'@{color-@{value}-theme}';

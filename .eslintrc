@@ -6,7 +6,10 @@
   "plugins": [
     "html"
   ],
-  "parser": "babel-eslint",
+  "parser": "@babel/eslint-parser",
+  "parserOptions": {
+    "requireConfigFile": false
+  },
   "rules": {
     "no-new": "off",
     "camelcase": "off",
@@ -27,5 +30,5 @@
   "settings": {
     "html/html-extensions": [".html", ".vue"]
   },
-  "ignorePatterns": ["vendors", "*.min.js"]
+  "ignorePatterns": ["vendors", "*.min.js", "dist", "node_modules"]
 }

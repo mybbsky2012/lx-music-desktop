@@ -10,11 +10,13 @@ const names = {
     min: 'min',
     max: 'max',
     close: 'close',
+    fullscreenToggle: 'fullscreenToggle',
     set_config: 'set_config',
     set_hot_key_config: 'set_hot_key_config',
   },
   player: {
     setTogglePlay: 'setTogglePlay', // 播放/暂停切换
+    setPlay: 'setPlay', // 播放
     setPause: 'setPause', // 暂停
     setStop: 'setStop', // 停止
     setPlayPrev: 'setPlayPrev', // 上一曲
@@ -26,11 +28,13 @@ const names = {
 
     playMusic: 'playMusic',
 
-    setPlayInfo: 'setPlayInfo',
-    updatePic: 'updatePic',
-    updateLyric: 'updateLyric',
+    setPlayInfo: 'setPlayInfo', // 设置播放信息
+    updatePic: 'updatePic', // 更新图片事件
+    updateLyric: 'updateLyric', // 更新歌词事件
+    updateLyricOffset: 'updateLyricOffset', // 更新歌词偏移
 
     activeTransition: 'activeTransition', // 激活进度条动画事件
+    playedStop: 'playedStop', // 定时停止事件
 
     // 播放器事件
     play: 'play',
@@ -64,6 +68,9 @@ const names = {
     send_sync_list: 'send_sync_list',
     handle_sync_list: 'handle_sync_list',
   },
+  taskbar: {
+    setTaskbarThumbnailClip: 'setTaskbarThumbnailClip',
+  },
 }
 
 for (const item of Object.keys(names)) {
@@ -78,3 +85,4 @@ export const player = names.player
 export const list = names.list
 export const download = names.download
 export const sync = names.sync
+export const taskbar = names.taskbar

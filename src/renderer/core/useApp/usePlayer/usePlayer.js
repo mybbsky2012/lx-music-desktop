@@ -22,14 +22,11 @@ import { requestMsg } from '@renderer/utils/message'
 import {
   isPlay,
   setPlay,
-  setStatus,
-  setStatusText,
   setAllStatus,
   musicInfo,
   setMusicInfo,
   musicInfoItem,
   playMusicInfo,
-  playInfo,
   setPlayList,
   setPlayMusicInfo,
   playedList,
@@ -90,12 +87,14 @@ export default ({ setting }) => {
   const { addDelayNextTimeout, clearDelayNextTimeout } = useDelayNextTimeout({ playNext, timeout: 5000 })
   const { addDelayNextTimeout: addLoadTimeout, clearDelayNextTimeout: clearLoadTimeout } = useDelayNextTimeout({ playNext, timeout: 123000 })
 
+  let isGettingUrl = false
   const setUrl = (targetSong, isRefresh, isRetryed = false) => {
     let type = getPlayType(setting.value.player.highQuality, targetSong)
     // this.musicInfo.url = await getMusicUrl(targetSong, type)
     setAllStatus(t('player__geting_url'))
-    addLoadTimeout()
+    if (setting.value.player.autoSkipOnError) addLoadTimeout()
 
+    isGettingUrl = true
     return getUrl({
       musicInfo: targetSong,
       type,
@@ -105,19 +104,22 @@ export default ({ setting }) => {
         setAllStatus('Try toggle source...')
       },
     }).then(url => {
+      if (global.isPlayedStop) return
       if (targetSong !== musicInfoItem.value || isPlay.value || type != getPlayType(setting.value.player.highQuality, musicInfoItem.value)) return
       setMusicInfo({ url })
       setResource(url)
     }).catch(err => {
       // console.log('err', err.message)
+      if (global.isPlayedStop) return
       if (targetSong !== musicInfoItem.value || isPlay.value) return
       if (err.message == requestMsg.cancelRequest) return
       if (!isRetryed) return setUrl(targetSong, isRefresh, true)
       setAllStatus(err.message)
-      addDelayNextTimeout()
+      if (setting.value.player.autoSkipOnError) addDelayNextTimeout()
       return Promise.reject(err)
     }).finally(() => {
       clearLoadTimeout()
+      if (targetSong === musicInfoItem.value) isGettingUrl = false
     })
   }
   const setImg = ({ listId, musicInfo: targetSong }) => {
@@ -133,21 +135,24 @@ export default ({ setting }) => {
     }
   }
   const setLrc = (targetSong) => {
-    getLrc(targetSong).then(({ lyric, tlyric, lxlyric }) => {
+    getLrc(targetSong).then(({ lyric, tlyric, rlyric, lxlyric, rawInfo }) => {
       if (targetSong.songmid !== musicInfo.songmid) return
       return (
         setting.value.player.isS2t
           ? Promise.all([
             lyric ? langS2T(lyric) : Promise.resolve(''),
             tlyric ? langS2T(tlyric) : Promise.resolve(''),
+            rlyric ? langS2T(rlyric) : Promise.resolve(''),
             lxlyric ? langS2T(lxlyric) : Promise.resolve(''),
           ])
-          : Promise.resolve([lyric, tlyric, lxlyric])
-      ).then(([lyric, tlyric, lxlyric]) => {
+          : Promise.resolve([lyric, tlyric, rlyric, lxlyric])
+      ).then(([lyric, tlyric, rlyric, lxlyric]) => {
         setMusicInfo({
           lrc: lyric,
           tlrc: tlyric,
+          rlrc: rlyric,
           lxlrc: lxlyric,
+          rawlrc: rawInfo.lyric,
         })
       })
     }).catch((err) => {
@@ -163,8 +168,9 @@ export default ({ setting }) => {
   usePlayProgress({ setting, playNext })
   useMediaSessionInfo({ playPrev, playNext })
   usePlayEvent({
+    setting,
     playNext,
-    setStatus,
+    setAllStatus,
     setUrl,
   })
   useLyric({
@@ -195,23 +201,23 @@ export default ({ setting }) => {
 
   const setPlayStatus = () => {
     setPlay(true)
-    setTitle(`${musicInfo.name} - ${musicInfo.singer}`)
   }
   const setPauseStatus = () => {
     setPlay(false)
-    setTitle()
+    if (global.isPlayedStop) handlePause()
   }
   const setStopStatus = () => {
     setPlay(false)
     setTitle()
-    setStatus('')
-    setStatusText('')
+    setAllStatus('')
     setMusicInfo({
       songmid: null,
       img: null,
       lrc: null,
       tlrc: null,
+      rlrc: null,
       lxlrc: null,
+      rawlrc: null,
       url: null,
       name: '',
       singer: '',
@@ -222,6 +228,7 @@ export default ({ setting }) => {
   // 播放音乐
   const playMusic = async() => {
     // console.log('playMusic')
+    isGettingUrl = false
     setStopStatus()
     if (window.restorePlayInfo) {
       handleRestorePlay(window.restorePlayInfo)
@@ -229,7 +236,7 @@ export default ({ setting }) => {
       return
     }
 
-    if (playInfo.musicInfo) {
+    if (playMusicInfo.musicInfo) {
       setPlayerStop()
       window.eventHub.emit(eventPlayerNames.pause)
       setStopStatus()
@@ -282,20 +289,28 @@ export default ({ setting }) => {
       name: musicInfo.name,
       album: musicInfo.albumName,
     })
+    setTitle(`${musicInfo.name} - ${musicInfo.singer}`)
   }
 
   const handelStop = () => {
     setPlayerStop()
+    setPlayMusicInfo(playMusicInfo.listId, null)
     window.eventHub.emit(eventPlayerNames.stop)
   }
 
   const handleEnded = () => {
     setAllStatus(t('player__end'))
+
+    if (global.isPlayedStop) return
     playNext()
   }
 
-  // 播放、暂停播放切换
-  const handleTogglePlay = async() => {
+  const handlePause = () => {
+    setPlayerPause()
+  }
+
+  const handlePlay = async() => {
+    if (playMusicInfo.musicInfo == null) return
     if (isPlayerEmpty()) {
       if (playMusicInfo.listId == 'download') {
         const musicInfo = playMusicInfo.musicInfo
@@ -308,18 +323,29 @@ export default ({ setting }) => {
           }
           return
         }
-        setResource(filePath)
+        if (!isGettingUrl) setResource(filePath)
       } else {
         // if (!this.assertApiSupport(this.targetSong.source)) return this.playNext()
-        setUrl(musicInfoItem.value)
+        if (!isGettingUrl) setUrl(musicInfoItem.value)
       }
       return
     }
+    setPlayerPlay()
+  }
+
+  // 播放、暂停播放切换
+  const handleTogglePlay = () => {
+    if (global.isPlayedStop) global.isPlayedStop = false
     if (isPlay.value) {
-      setPlayerPause()
+      handlePause()
     } else {
-      setPlayerPlay()
+      handlePlay()
     }
+  }
+
+  const handlePlayedStop = () => {
+    clearDelayNextTimeout()
+    clearLoadTimeout()
   }
 
   watch(() => setting.value.player.togglePlayMethod, newValue => {
@@ -341,13 +367,16 @@ export default ({ setting }) => {
   window.eventHub.on(eventPlayerNames.stop, setStopStatus)
 
   window.eventHub.on(eventPlayerNames.playMusic, playMusic)
+  window.eventHub.on(eventPlayerNames.setPlay, handlePlay)
+  window.eventHub.on(eventPlayerNames.setPause, handlePause)
+  window.eventHub.on(eventPlayerNames.setStop, handelStop)
   window.eventHub.on(eventPlayerNames.setTogglePlay, handleTogglePlay)
   window.eventHub.on(eventPlayerNames.setPlayPrev, playPrev)
   window.eventHub.on(eventPlayerNames.setPlayNext, playNext)
   window.eventHub.on(eventPlayerNames.setPlayInfo, handleSetPlayInfo)
-  window.eventHub.on(eventPlayerNames.setStop, handelStop)
 
   window.eventHub.on(eventPlayerNames.player_ended, handleEnded)
+  window.eventHub.on(eventPlayerNames.playedStop, handlePlayedStop)
 
 
   onBeforeUnmount(() => {
@@ -362,11 +391,14 @@ export default ({ setting }) => {
 
     window.eventHub.off(eventPlayerNames.playMusic, playMusic)
     window.eventHub.off(eventPlayerNames.setTogglePlay, handleTogglePlay)
+    window.eventHub.off(eventPlayerNames.setPlay, handlePlay)
+    window.eventHub.off(eventPlayerNames.setPause, handlePause)
+    window.eventHub.off(eventPlayerNames.setStop, handelStop)
     window.eventHub.off(eventPlayerNames.setPlayPrev, playPrev)
     window.eventHub.off(eventPlayerNames.setPlayNext, playNext)
     window.eventHub.off(eventPlayerNames.setPlayInfo, handleSetPlayInfo)
-    window.eventHub.off(eventPlayerNames.setStop, handelStop)
 
     window.eventHub.off(eventPlayerNames.player_ended, handleEnded)
+    window.eventHub.off(eventPlayerNames.playedStop, handlePlayedStop)
   })
 }

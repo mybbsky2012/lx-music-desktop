@@ -1,12 +1,14 @@
 module.exports = {
-  // upgrade: true,
-  // target: 'newest',
+  upgrade: true,
   reject: [
-    'webpack-dev-server',
-    'eslint',
     'electron',
-    'electron-builder',
     'chalk',
-    // 'eslint-config-standard'
-  ]
+    'del',
+  ],
+  // target: 'newest',
+  // filter: [
+  //   /^vue/,
+  //   'electron-builder',
+  //   'electron-updater',
+  // ],
 }

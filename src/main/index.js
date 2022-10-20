@@ -1,5 +1,7 @@
-const { app, BrowserWindow, shell } = require('electron')
+const { app, BrowserWindow, shell, nativeTheme } = require('electron')
 const path = require('path')
+
+const urlSchemeRxp = /^lxmusic:\/\//
 
 // 单例应用程序
 if (!app.requestSingleInstanceLock()) {
@@ -8,6 +10,13 @@ if (!app.requestSingleInstanceLock()) {
 }
 if (!global.modules) global.modules = {}
 app.on('second-instance', (event, argv, cwd) => {
+  for (const param of argv) {
+    if (urlSchemeRxp.test(param)) {
+      global.envParams.deeplink = param
+      break
+    }
+  }
+
   if (global.modules.mainWindow) {
     if (global.modules.mainWindow.isMinimized()) {
       global.modules.mainWindow.restore()
@@ -21,6 +30,18 @@ app.on('second-instance', (event, argv, cwd) => {
     app.quit()
   }
 })
+
+// windows平台下如果应用目录下存在 portable 文件夹则将数据存在此文件下
+if (process.platform === 'win32') {
+  const fs = require('fs')
+  const portablePath = path.join(path.dirname(app.getPath('exe')), '/portable')
+  if (fs.existsSync(portablePath)) {
+    app.setPath('appData', portablePath)
+    const appDataPath = path.join(portablePath, '/userData')
+    if (!fs.existsSync(appDataPath)) fs.mkdirSync(appDataPath)
+    app.setPath('userData', appDataPath)
+  }
+}
 
 const isDev = global.isDev = process.env.NODE_ENV !== 'production'
 require('./env')
@@ -37,6 +58,38 @@ if (process.platform == 'linux') app.commandLine.appendSwitch('use-gl', 'desktop
 // https://github.com/electron/electron/issues/22691
 app.commandLine.appendSwitch('wm-window-animations-disabled')
 
+// proxy
+if (global.envParams.cmdParams['proxy-server']) {
+  app.commandLine.appendSwitch('proxy-server', global.envParams.cmdParams['proxy-server'])
+  app.commandLine.appendSwitch('proxy-bypass-list', global.envParams.cmdParams['proxy-bypass-list'] ?? '<local>')
+}
+// if (global.envParams.cmdParams['proxy-pac-url']) app.commandLine.appendSwitch('proxy-pac-url', global.envParams.cmdParams['proxy-pac-url'])
+
+// deep link
+app.on('open-url', (event, url) => {
+  if (!urlSchemeRxp.test(url)) return
+  event.preventDefault()
+  global.envParams.deeplink = url
+  if (global.modules.mainWindow) {
+    if (global.modules.mainWindow.isMinimized()) {
+      global.modules.mainWindow.restore()
+    }
+    if (global.modules.mainWindow.isVisible()) {
+      global.modules.mainWindow.focus()
+    } else {
+      global.modules.mainWindow.show()
+    }
+  } else if (global.modules.mainWindow === null) {
+    init()
+  }
+})
+// if (isDev && process.platform === 'win32') {
+//   // Set the path of electron.exe and your app.
+//   // These two additional parameters are only available on windows.
+//   // console.log(process.execPath, process.argv)
+//   app.setAsDefaultProtocolClient('lxmusic', process.execPath, process.argv.slice(1))
+// }
+if (!isDev) app.setAsDefaultProtocolClient('lxmusic')
 
 const { navigationUrlWhiteList, themes } = require('../common/config')
 const { getWindowSizeInfo, initSetting, updateSetting } = require('./utils')
@@ -75,6 +128,10 @@ app.on('web-contents-created', (event, contents) => {
       event.preventDefault()
     }
   })
+
+  // disable create dictionary
+  // https://github.com/lyswhut/lx-music-desktop/issues/773
+  contents.session.setSpellCheckerDictionaryDownloadURL('http://0.0.0.0')
 })
 
 
@@ -102,7 +159,7 @@ function createWindow() {
   /**
    * Initial window options
    */
-  global.modules.mainWindow = new BrowserWindow({
+  const options = {
     height: windowSizeInfo.height,
     useContentSize: true,
     width: windowSizeInfo.width,
@@ -112,7 +169,7 @@ function createWindow() {
     // icon: path.join(global.__static, isWin ? 'icons/256x256.ico' : 'icons/512x512.png'),
     resizable: false,
     maximizable: false,
-    fullscreenable: false,
+    fullscreenable: true,
     show: false,
     webPreferences: {
       contextIsolation: false,
@@ -120,11 +177,24 @@ function createWindow() {
       nodeIntegration: true,
       spellcheck: false, // 禁用拼写检查器
     },
-  })
+  }
+  if (global.appSetting.startInFullscreen) {
+    options.fullscreen = true
+    if (isLinux) options.resizable = true
+  }
+  global.modules.mainWindow = new BrowserWindow(options)
 
-  global.modules.mainWindow.loadURL(winURL + `?dt=${!!global.envParams.cmdParams.dt}&theme=${themes.find(t => t.id == global.appSetting.themeId)?.className ?? themes[0].className}`)
+  const shouldUseDarkColors = nativeTheme.shouldUseDarkColors
+  const themeId = global.appSetting.theme.id == 'auto'
+    ? shouldUseDarkColors
+      ? global.appSetting.theme.darkId
+      : global.appSetting.theme.lightId
+    : global.appSetting.theme.id
+  const themeClass = themes.find(t => t.id == themeId)?.className ?? themes[0].className
+  global.modules.mainWindow.loadURL(winURL + `?dt=${!!global.envParams.cmdParams.dt}&dark=${shouldUseDarkColors}&theme=${themeClass}`)
 
   winEvent(global.modules.mainWindow)
+  if (global.envParams.cmdParams.odt) require('@main/utils').openDevTools(global.modules.mainWindow.webContents)
   // global.modules.mainWindow.webContents.openDevTools()
 
   if (!isDev) autoUpdate()

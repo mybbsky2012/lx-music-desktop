@@ -15,7 +15,6 @@ fs.readFile(path.join(dir, 'renderer/user-api.html'), 'utf8', (err, data) => {
 })
 
 const denyEvents = [
-  'new-window',
   'will-navigate',
   'will-redirect',
   'will-attach-webview',
@@ -49,11 +48,13 @@ exports.createWindow = async userApi => {
       contextIsolation: true,
       // worldSafeExecuteJavaScript: true,
       nodeIntegration: false,
+      nodeIntegrationInWorker: false,
 
       spellcheck: false,
       autoplayPolicy: 'document-user-activation-required',
       enableWebSQL: false,
       disableDialogs: true,
+      nativeWindowOpen: false,
       webgl: false,
       images: false,
 
@@ -66,9 +67,13 @@ exports.createWindow = async userApi => {
       event.preventDefault()
     })
   }
-  global.modules.userApiWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    // eslint-disable-next-line node/no-callback-literal
-    callback(false)
+  global.modules.userApiWindow.webContents.session.setPermissionRequestHandler((webContents, permission, resolve) => {
+    if (webContents === global.modules.mainWindow.webContents) return resolve(true)
+
+    resolve(false)
+  })
+  global.modules.userApiWindow.webContents.setWindowOpenHandler(() => {
+    return { action: 'deny' }
   })
 
   winEvent(global.modules.userApiWindow)

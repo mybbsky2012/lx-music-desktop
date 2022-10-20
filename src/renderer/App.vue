@@ -14,19 +14,12 @@
 </template>
 
 <script>
-import { useRefGetter, watch, onMounted } from '@renderer/utils/vueTools'
+import { onMounted } from '@renderer/utils/vueTools'
 import useApp from '@renderer/core/useApp'
 
 export default {
   setup() {
-    const theme = useRefGetter('theme')
-
     const dom_root = document.getElementById('root')
-
-    watch(theme, (val) => {
-      dom_root.className = val
-    })
-    dom_root.className = theme.value
 
     useApp()
 
@@ -78,13 +71,13 @@ body {
 
 .transparent {
   padding: @shadow-app;
-  #waiting-mask {
-    border-radius: @radius-border;
-    left: @shadow-app;
-    right: @shadow-app;
-    top: @shadow-app;
-    bottom: @shadow-app;
-  }
+  // #waiting-mask {
+  //   border-radius: @radius-border;
+  //   left: @shadow-app;
+  //   right: @shadow-app;
+  //   top: @shadow-app;
+  //   bottom: @shadow-app;
+  // }
   #root {
     box-shadow: 0 0 @shadow-app rgba(0, 0, 0, 0.5);
     border-radius: @radius-border;
@@ -103,8 +96,16 @@ body {
     border-bottom-left-radius: 0;
   }
 
-  #view { // 偏移5px距离解决非透明模式下右侧滚动条无法拖动的问题
-    margin-right: 5Px;
+  // #view { // 偏移5px距离解决非透明模式下右侧滚动条无法拖动的问题
+  //   margin-right: 5Px;
+  // }
+}
+.fullscreen {
+  background-color: #fff;
+
+  #right {
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
   }
 }
 

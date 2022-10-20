@@ -6,7 +6,7 @@
     </div>
     <ul class="scroll" :class="$style.listsContent" ref="dom_lists_list">
       <li :class="[$style.listsItem, { [$style.active]: item.id == tabId }, { [$style.clicked]: boardListData.rightClickItemIndex == index }]"
-      :tips="item.name" v-for="(item, index) in boardList" :key="item.id"
+      :aria-label="item.name" v-for="(item, index) in boardList" :key="item.id"
       @click="handleToggleList(item.id)" @contextmenu="handleListsItemRigthClick($event, index)">
         <span :class="$style.listsLabel">{{item.name}}</span>
       </li>
@@ -16,6 +16,7 @@
     <material-online-list
       ref="songList"
       @show-menu="hideListsMenu"
+      @play-list="handlePlayList"
       @toggle-page="handleGetList"
       :rowWidth="{r1: '5%', r2: 'auto', r3: '22%', r4: '22%', r5: '9%', r6: '15%'}"
       :page="page"
@@ -77,7 +78,7 @@ export default {
   },
   computed: {
     ...mapGetters(['setting']),
-    ...mapGetters('leaderboard', ['sources', 'boards', 'info']),
+    ...mapGetters('leaderboard', ['sources', 'sourceIds', 'boards', 'info']),
     boardList() {
       return this.source && this.boards[this.source] ? this.boards[this.source] : []
     },
@@ -128,6 +129,7 @@ export default {
   },
   mounted() {
     this.source = this.setting.leaderboard.source
+    if (!this.sourceIds.includes(this.source)) this.source = this.sourceIds[0]
     this.tabId = this.setting.leaderboard.tabId
     this.page = this.listInfo.page
   },
@@ -193,7 +195,6 @@ export default {
           case 'play':
             this.playSongListDetail({
               boardId: board.id,
-              list: [...this.list],
               id,
             })
             break
@@ -211,7 +212,7 @@ export default {
     async addSongListDetail({ boardId, boardName, source, id }) {
       // console.log(this.listDetail.info)
       // if (!this.listDetail.info.name) return
-      const list = await this.getListAll(boardId)
+      const list = await this.getListAll({ id: boardId })
       this.createUserList({
         name: boardName,
         id,
@@ -220,17 +221,18 @@ export default {
         sourceListId: `board__${boardId}`,
       })
     },
-    async playSongListDetail({ boardId, id, list }) {
+    async playSongListDetail({ boardId, id, index = 0 }) {
       let isPlayingList = false
+      const list = this.tabId == boardId ? [...this.list] : null
       if (list?.length) {
         this.setTempList({
           list,
-          index: 0,
+          index,
           id,
         })
         isPlayingList = true
       }
-      const fullList = await this.getListAll(boardId)
+      const fullList = await this.getListAll({ id: boardId })
       if (!fullList.length) return
       if (isPlayingList) {
         if (tempList.meta.id == id) {
@@ -242,10 +244,17 @@ export default {
       } else {
         this.setTempList({
           list: fullList,
-          index: 0,
+          index,
           id,
         })
       }
+    },
+    handlePlayList(index) {
+      this.playSongListDetail({
+        boardId: this.tabId,
+        id: `board__${this.source}__${this.tabId}`,
+        index,
+      })
     },
   },
 }

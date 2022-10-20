@@ -69,6 +69,7 @@ const getExt = type => {
     case 'ape':
       return 'ape'
     case 'flac':
+    case 'flac32bit':
       return 'flac'
     case 'wav':
       return 'wav'
@@ -153,6 +154,7 @@ const getPic = function(musicInfo, retryedSource = [], originMusic) {
   })
 }
 
+const existTimeExp = /\[\d{1,2}:.*\d{1,4}\]/
 const handleGetLyric = function(musicInfo, retryedSource = [], originMusic) {
   if (!originMusic) originMusic = musicInfo
   let reqPromise
@@ -161,7 +163,10 @@ const handleGetLyric = function(musicInfo, retryedSource = [], originMusic) {
   } catch (err) {
     reqPromise = Promise.reject(err)
   }
-  return reqPromise.catch(err => {
+  return reqPromise.then(lyricInfo => {
+    return existTimeExp.test(lyricInfo.lyric) ? lyricInfo : Promise.reject(new Error('failed'))
+  }).catch(err => {
+    // console.log(err)
     if (!retryedSource.includes(musicInfo.source)) retryedSource.push(musicInfo.source)
     return this.dispatch('list/getOtherSource', originMusic).then(otherSource => {
       console.log('find otherSource', otherSource)
@@ -169,7 +174,7 @@ const handleGetLyric = function(musicInfo, retryedSource = [], originMusic) {
         for (const item of otherSource) {
           if (retryedSource.includes(item.source)) continue
           console.log('try toggle to: ', item.source, item.name, item.singer, item.interval)
-          return getLyric.call(this, item, retryedSource, originMusic)
+          return handleGetLyric.call(this, item, retryedSource, originMusic)
         }
       }
       return Promise.reject(err)
@@ -180,15 +185,15 @@ const handleGetLyric = function(musicInfo, retryedSource = [], originMusic) {
 const getLyric = function(musicInfo, isUseOtherSource, isS2t) {
   return getLyricFromStorage(musicInfo).then(lrcInfo => {
     return (
-      lrcInfo.lyric
-        ? Promise.resolve({ lyric: lrcInfo.lyric, tlyric: lrcInfo.tlyric || '' })
+      existTimeExp.test(lrcInfo.lyric)
+        ? Promise.resolve({ lyric: lrcInfo.lyric, tlyric: lrcInfo.tlyric || '', rlyric: lrcInfo.rlyric || '', lxlyric: lrcInfo.lxlyric || '' })
         : (
             isUseOtherSource
               ? handleGetLyric.call(this, musicInfo)
               : music[musicInfo.source].getLyric(musicInfo).promise
-          ).then(({ lyric, tlyric, lxlyric }) => {
-            setLyric(musicInfo, { lyric, tlyric, lxlyric })
-            return { lyric, tlyric, lxlyric }
+          ).then(({ lyric, tlyric, rlyric, lxlyric }) => {
+            setLyric(musicInfo, { lyric, tlyric, rlyric, lxlyric })
+            return { lyric, tlyric, rlyric, lxlyric }
           }).catch(err => {
             console.log(err)
             return null
@@ -232,7 +237,7 @@ const saveMeta = function({ downloadInfo, filePath, isUseOtherSource, isEmbedPic
       : Promise.resolve(),
   ]
   Promise.all(tasks).then(([imgUrl, lyrics = {}]) => {
-    if (lyrics.lyric) lyrics.lyric = fixKgLyric(lyrics.lyric)
+    if (lyrics?.lyric) lyrics.lyric = fixKgLyric(lyrics.lyric)
     setMeta(filePath, {
       title: downloadInfo.metadata.musicInfo.name,
       artist: downloadInfo.metadata.musicInfo.singer,
@@ -438,6 +443,14 @@ const actions = {
           dispatch('startTask')
           return
         }
+        if (err.message?.startsWith('Resume failed')) {
+          fs.unlink(downloadInfo.metadata.filePath, err => {
+            if (err) return commit('onError', { downloadInfo, errorMsg: '删除不匹配的文件失败：' + err.message })
+            dls[downloadInfo.key].start()
+            commit('setStatusText', { downloadInfo, text: '正在重试' })
+          })
+          return
+        }
         if (err.code == 'ENOTFOUND') {
           commit('onError', { downloadInfo, errorMsg: '链接失效' })
           refreshUrl.call(_this, commit, downloadInfo, rootState.setting.download.isUseOtherSource)
@@ -507,7 +520,8 @@ const actions = {
       delete dls[item.key]
     }
     commit('removeTask', item)
-    if (item.status != downloadStatus.COMPLETED) {
+    // 没有未完成、已下载大于1k
+    if (item.status != downloadStatus.COMPLETED && item.progress.total && item.progress.downloaded > 1024) {
       try {
         await deleteFile(item.metadata.filePath)
       } catch (_) {}
@@ -529,7 +543,8 @@ const actions = {
           delete dls[item.key]
         }
       }
-      if (item.status != downloadStatus.COMPLETED) {
+      // 没有未完成、已下载大于1k
+      if (item.status != downloadStatus.COMPLETED && item.progress.total && item.progress.downloaded > 1024) {
         deleteFile(item.metadata.filePath).catch(_ => _)
       }
     }
@@ -553,6 +568,7 @@ const actions = {
       if (!result) return
       downloadInfo = result
     }
+    commit('setStatus', { downloadInfo, status: downloadStatus.RUN })
 
     let dl = dls[downloadInfo.key]
     if (dl) {
@@ -561,6 +577,7 @@ const actions = {
         filePath: path.join(rootState.setting.download.savePath, downloadInfo.metadata.fileName),
       })
       dl.updateSaveInfo(rootState.setting.download.savePath, downloadInfo.metadata.fileName)
+      if (tryNum[downloadInfo.key]) tryNum[downloadInfo.key] = 0
       try {
         await dl.start()
       } catch (error) {

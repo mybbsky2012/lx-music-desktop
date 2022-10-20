@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import { shell, clipboard } from 'electron'
+import { httpOverHttp, httpsOverHttp } from 'tunnel'
 import crypto from 'crypto'
 import { rendererSend, rendererInvoke, NAMES } from '@common/ipc'
 import { log } from '@common/utils'
@@ -78,6 +79,7 @@ export const b64DecodeUnicode = str => {
 }
 
 const encodeNames = {
+  '&nbsp;': ' ',
   '&amp;': '&',
   '&lt;': '<',
   '&gt;': '>',
@@ -85,7 +87,7 @@ const encodeNames = {
   '&apos;': "'",
   '&#039;': "'",
 }
-export const decodeName = (str = '') => str?.replace(/(?:&amp;|&lt;|&gt;|&quot;|&apos;|&#039;)/gm, s => encodeNames[s]) || ''
+export const decodeName = (str = '') => str?.replace(/(?:&amp;|&lt;|&gt;|&quot;|&apos;|&#039;|&nbsp;)/gm, s => encodeNames[s]) || ''
 
 const easeInOutQuad = (t, b, c, d) => {
   t /= d / 2
@@ -93,7 +95,7 @@ const easeInOutQuad = (t, b, c, d) => {
   t--
   return (-c / 2) * (t * (t - 2) - 1) + b
 }
-const handleScroll = (element, to, duration = 300, fn = () => {}) => {
+const handleScrollY = (element, to, duration = 300, fn = () => {}) => {
   if (!element) return fn()
   const start = element.scrollTop || element.scrollY || 0
   let cancel = false
@@ -148,10 +150,72 @@ export const scrollTo = (element, to, duration = 300, fn = () => {}, delay = 0) 
     }
     timeout = setTimeout(() => {
       timeout = null
-      scrollCancelFn = handleScroll(element, to, duration, fn, delay)
+      scrollCancelFn = handleScrollY(element, to, duration, fn, delay)
     }, delay)
   } else {
-    cancelFn = handleScroll(element, to, duration, fn, delay)
+    cancelFn = handleScrollY(element, to, duration, fn, delay)
+  }
+  return cancelFn
+}
+const handleScrollX = (element, to, duration = 300, fn = () => {}) => {
+  if (!element) return fn()
+  const start = element.scrollLeft || element.scrollX || 0
+  let cancel = false
+  if (to > start) {
+    let maxScrollLeft = element.scrollWidth - element.clientWidth
+    if (to > maxScrollLeft) to = maxScrollLeft
+  } else if (to < start) {
+    if (to < 0) to = 0
+  } else return fn()
+  const change = to - start
+  const increment = 10
+  if (!change) return fn()
+
+  let currentTime = 0
+  let val
+
+  const animateScroll = () => {
+    currentTime += increment
+    val = parseInt(easeInOutQuad(currentTime, start, change, duration))
+    if (element.scrollTo) {
+      element.scrollTo(val, 0)
+    } else {
+      element.scrollLeft = val
+    }
+    if (currentTime < duration) {
+      if (cancel) return fn()
+      setTimeout(animateScroll, increment)
+    } else {
+      fn()
+    }
+  }
+  animateScroll()
+  return () => {
+    cancel = true
+  }
+}
+/**
+ * 设置滚动条位置
+ * @param {*} element 要设置滚动的容器 dom
+ * @param {*} to 滚动的目标位置
+ * @param {*} duration 滚动完成时间 ms
+ * @param {*} fn 滚动完成后的回调
+ * @param {*} delay 延迟执行时间
+ */
+export const scrollXTo = (element, to, duration = 300, fn = () => {}, delay = 0) => {
+  let cancelFn
+  let timeout
+  if (delay) {
+    let scrollCancelFn
+    cancelFn = () => {
+      timeout == null ? scrollCancelFn && scrollCancelFn() : clearTimeout(timeout)
+    }
+    timeout = setTimeout(() => {
+      timeout = null
+      scrollCancelFn = handleScrollX(element, to, duration, fn, delay)
+    }, delay)
+  } else {
+    cancelFn = handleScrollX(element, to, duration, fn, delay)
   }
   return cancelFn
 }
@@ -387,9 +451,34 @@ export const clearCache = () => rendererInvoke(NAMES.mainWindow.clear_cache)
 export const setWindowSize = (width, height) => rendererSend(NAMES.mainWindow.set_window_size, { width, height })
 
 
-export const getProxyInfo = () => proxy.enable && proxy.host
-  ? `http://${proxy.username}:${proxy.password}@${proxy.host}:${proxy.port};`
-  : undefined
+export const getProxyInfo = () => {
+  return proxy.enable && proxy.host
+    ? `http://${proxy.username}:${proxy.password}@${proxy.host}:${proxy.port}`
+    : proxy.envProxy
+      ? `http://${proxy.envProxy.host}:${proxy.envProxy.port}`
+      : undefined
+}
+
+const httpsRxp = /^https:/
+export const getRequestAgent = url => {
+  let options
+  if (proxy.enable && proxy.host) {
+    options = {
+      proxy: {
+        host: proxy.host,
+        port: proxy.port,
+      },
+    }
+  } else if (proxy.envProxy) {
+    options = {
+      proxy: {
+        host: proxy.envProxy.host,
+        port: proxy.envProxy.port,
+      },
+    }
+  }
+  return options ? (httpsRxp.test(url) ? httpsOverHttp : httpOverHttp)(options) : undefined
+}
 
 
 export const assertApiSupport = source => qualityList.value[source] != undefined
@@ -425,11 +514,18 @@ export const parseUrlParams = str => {
 }
 
 export const getLyric = musicInfo => rendererInvoke(NAMES.mainWindow.get_lyric, `${musicInfo.source}_${musicInfo.songmid}`)
-export const setLyric = (musicInfo, { lyric, tlyric, lxlyric }) => rendererSend(NAMES.mainWindow.save_lyric, {
+export const getLyricRaw = musicInfo => rendererInvoke(NAMES.mainWindow.get_lyric_raw, `${musicInfo.source}_${musicInfo.songmid}`)
+export const setLyric = (musicInfo, { lyric, tlyric, rlyric, lxlyric }) => rendererSend(NAMES.mainWindow.save_lyric_raw, {
   id: `${musicInfo.source}_${musicInfo.songmid}`,
-  lyrics: { lyric, tlyric, lxlyric },
+  lyrics: { lyric, tlyric, rlyric, lxlyric },
 })
-export const clearLyric = () => rendererSend(NAMES.mainWindow.clear_lyric)
+export const setLyricEdited = (musicInfo, { lyric, tlyric, rlyric, lxlyric }) => rendererSend(NAMES.mainWindow.save_lyric_edited, {
+  id: `${musicInfo.source}_${musicInfo.songmid}`,
+  lyrics: { lyric, tlyric, rlyric, lxlyric },
+})
+export const removeLyricEdited = musicInfo => rendererSend(NAMES.mainWindow.remove_lyric_edited, `${musicInfo.source}_${musicInfo.songmid}`)
+
+export const clearLyric = () => rendererSend(NAMES.mainWindow.clear_lyric_raw)
 
 export const getMusicUrl = (musicInfo, type) => rendererInvoke(NAMES.mainWindow.get_music_url, `${musicInfo.source}_${musicInfo.songmid}_${type}`)
 export const setMusicUrl = (musicInfo, type, url) => rendererSend(NAMES.mainWindow.save_music_url, {
@@ -494,3 +590,24 @@ export const saveStrToFile = (path, str) => new Promise((resolve, reject) => {
 
 const fileNameRxp = /[\\/:*?#"<>|]/g
 export const filterFileName = name => name.replace(fileNameRxp, '')
+
+
+export const getFontSizeWithScreen = (screenWidth = window.innerWidth) => {
+  return screenWidth <= 1440
+    ? 16
+    : screenWidth <= 1920
+      ? 18
+      : screenWidth <= 2560
+        ? 20
+        : screenWidth <= 2560 ? 20 : 22
+}
+
+
+export const deduplicationList = list => {
+  const ids = new Set()
+  return list.filter(s => {
+    if (ids.has(s.songmid)) return false
+    ids.add(s.songmid)
+    return true
+  })
+}

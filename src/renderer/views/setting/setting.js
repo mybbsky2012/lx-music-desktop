@@ -2,12 +2,29 @@ import { ref } from '@renderer/utils/vueTools'
 
 export const currentStting = ref({
   player: {
-    togglePlayMethod: 'random',
+    togglePlayMethod: 'listLoop',
     highQuality: false,
     isShowTaskProgess: true,
     volume: 1,
+    isMute: false,
     mediaDeviceId: 'default',
     isMediaDeviceRemovedStopPlay: false,
+    isShowLyricTranslation: false,
+    isShowLyricRoma: false,
+    isS2t: false, // 是否将歌词从简体转换为繁体
+    isPlayLxlrc: true,
+    isSavePlayTime: false,
+    audioVisualization: false,
+    waitPlayEndStop: true,
+    waitPlayEndStopTime: '',
+    autoSkipOnError: true,
+  },
+  playDetail: {
+    isZoomActiveLrc: true,
+    style: {
+      fontSize: 100,
+      align: 'center',
+    },
   },
   desktopLyric: {
     enable: false,
@@ -17,6 +34,9 @@ export const currentStting = ref({
     x: -1,
     y: -1,
     theme: '',
+    isLockScreen: true,
+    isDelayScroll: true,
+    isHoverHide: false,
     style: {
       font: '',
       fontSize: 125,
@@ -68,9 +88,15 @@ export const currentStting = ref({
     port: '23332',
   },
   windowSizeId: 1,
+  startInFullscreen: false,
   langId: 'cns',
-  themeId: 0,
+  theme: {
+    id: 0,
+    lightId: 0,
+    darkId: 13,
+  },
   sourceId: 0,
+  font: '',
   isShowAnimation: true,
   randomAnimate: true,
   isAgreePact: false,

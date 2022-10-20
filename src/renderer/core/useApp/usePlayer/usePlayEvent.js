@@ -2,10 +2,12 @@ import { onBeforeUnmount, useI18n } from '@renderer/utils/vueTools'
 import { player as eventPlayerNames } from '@renderer/event/names'
 import { wait, waitCancel } from '@renderer/utils/tools'
 import { musicInfo, musicInfoItem, playMusicInfo } from '@renderer/core/share/player'
+import { setStop, isEmpty } from '@renderer/plugins/player'
 
 export default ({
+  setting,
   playNext,
-  setStatus,
+  setAllStatus,
   setUrl,
 }) => {
   const { t } = useI18n()
@@ -49,19 +51,17 @@ export default ({
   }
 
   const handleLoadstart = () => {
-    startLoadingTimeout()
-    const status = t('player__loading')
-    setStatus(status, status)
+    if (global.isPlayedStop) return
+    if (setting.value.player.autoSkipOnError) startLoadingTimeout()
+    setAllStatus(t('player__loading'))
   }
 
   const handleLoadeddata = () => {
-    const status = t('player__loading')
-    setStatus(status, status)
+    setAllStatus(t('player__loading'))
   }
 
   const handleCanplay = () => {
-    const status = ''
-    setStatus(status, status)
+    setAllStatus('')
   }
 
   const handlePlaying = () => {
@@ -74,30 +74,40 @@ export default ({
   }
 
   const handleWating = () => {
-    const status = t('player__buffering')
-    setStatus(status, status)
+    setAllStatus(t('player__buffering'))
   }
 
   const handleError = errCode => {
     if (!musicInfo.songmid) return
     clearLoadingTimeout()
+    if (global.isPlayedStop) return
+    if (!isEmpty()) setStop()
     if (playMusicInfo.listId != 'download' && errCode !== 1 && retryNum < 2) { // 若音频URL无效则尝试刷新2次URL
       // console.log(this.retryNum)
       retryNum++
       setUrl(musicInfoItem.value, true)
-      const status = t('player__refresh_url')
-      setStatus(status, status)
+      setAllStatus(t('player__refresh_url'))
       return
     }
 
-    const status = t('player__error')
-    setStatus(status, status)
-    addDelayNextTimeout()
+    if (setting.value.player.autoSkipOnError) {
+      if (document.hidden) {
+        playNext()
+      } else {
+        setAllStatus(t('player__error'))
+        setTimeout(addDelayNextTimeout)
+      }
+    }
   }
 
   const handleSetPlayInfo = () => {
     retryNum = 0
     prevTimeoutId = null
+    clearDelayNextTimeout()
+    clearLoadingTimeout()
+  }
+
+  const handlePlayedStop = () => {
     clearDelayNextTimeout()
     clearLoadingTimeout()
   }
@@ -111,6 +121,7 @@ export default ({
   window.eventHub.on(eventPlayerNames.player_emptied, handleEmpied)
   window.eventHub.on(eventPlayerNames.error, handleError)
   window.eventHub.on(eventPlayerNames.setPlayInfo, handleSetPlayInfo)
+  window.eventHub.on(eventPlayerNames.playedStop, handlePlayedStop)
 
   onBeforeUnmount(() => {
     window.eventHub.off(eventPlayerNames.player_loadstart, handleLoadstart)
@@ -121,5 +132,6 @@ export default ({
     window.eventHub.off(eventPlayerNames.player_emptied, handleEmpied)
     window.eventHub.off(eventPlayerNames.error, handleError)
     window.eventHub.off(eventPlayerNames.setPlayInfo, handleSetPlayInfo)
+    window.eventHub.off(eventPlayerNames.playedStop, handlePlayedStop)
   })
 }

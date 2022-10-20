@@ -17,7 +17,7 @@ module.exports = {
   output: {
     filename: '[name].js',
     libraryTarget: 'commonjs2',
-    path: path.join(__dirname, '../../dist/electron'),
+    path: path.join(__dirname, '../../dist'),
     publicPath: 'auto',
   },
   resolve: {
@@ -127,9 +127,6 @@ module.exports = {
       },
     ],
   },
-  performance: {
-    maxEntrypointSize: 300000,
-  },
   plugins: [
     new HTMLPlugin({
       filename: 'lyric.html',
@@ -147,6 +144,7 @@ module.exports = {
     }),
     new ESLintPlugin({
       extensions: ['js', 'vue'],
+      formatter: require('eslint-formatter-friendly'),
     }),
   ],
 }

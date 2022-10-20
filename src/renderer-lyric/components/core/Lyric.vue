@@ -22,6 +22,7 @@ export default {
       type: Object,
       default() {
         return {
+          isDelayScroll: true,
           style: {
             font: '',
             fontSize: 125,
@@ -36,6 +37,10 @@ export default {
       default: true,
     },
     isShowLyricTranslation: {
+      type: Boolean,
+      default: true,
+    },
+    isShowLyricRoma: {
       type: Boolean,
       default: true,
     },
@@ -73,6 +78,7 @@ export default {
       lyrics: {
         lyric: '',
         tlyric: '',
+        rlyric: '',
         lxlyric: '',
       },
     }
@@ -127,14 +133,22 @@ export default {
         if (n < 0) return
         if (n == 0 && this.isSetedLines) return this.isSetedLines = false
         if (o == null || n - o != 1) return this.handleScrollLrc()
-        delayScrollTimeout = setTimeout(() => {
-          delayScrollTimeout = null
-          this.handleScrollLrc(600)
-        }, 600)
+        if (this.lrcConfig.isDelayScroll) {
+          delayScrollTimeout = setTimeout(() => {
+            delayScrollTimeout = null
+            this.handleScrollLrc(600)
+          }, 600)
+        } else {
+          this.handleScrollLrc()
+        }
       },
       immediate: true,
     },
     isShowLyricTranslation() {
+      this.setLyric()
+      rendererSend(NAMES.winLyric.get_lyric_info, 'status')
+    },
+    isShowLyricRoma() {
       this.setLyric()
       rendererSend(NAMES.winLyric.get_lyric_info, 'status')
     },
@@ -167,7 +181,6 @@ export default {
         this.lyric.lines = lines
         this.lyric.line = 0
       },
-      offset: 100,
     })
   },
   mounted() {
@@ -191,6 +204,7 @@ export default {
         case 'lyric':
           this.lyrics.lyric = data.lrc
           this.lyrics.tlyric = data.tlrc
+          this.lyrics.rlyric = data.rlrc
           this.lyrics.lxlyric = data.lxlrc
           this.setLyric()
           break
@@ -202,15 +216,26 @@ export default {
           this.isPlay = false
           window.lrc.pause()
           break
+        case 'stop':
+          this.isPlay = false
+          this.lyrics.lyric = ''
+          this.lyrics.tlyric = ''
+          this.lyrics.lxlyric = ''
+          this.lyrics.rlyric = ''
+          this.setLyric()
+          break
         case 'info':
           // console.log('info', data)
           this.lyrics.lyric = data.lrc
           this.lyrics.tlyric = data.tlrc
+          this.lyrics.rlyric = data.rlrc
           this.lyrics.lxlyric = data.lxlrc
           this.setLyric()
           this.$nextTick(() => {
             this.lyric.line = data.line
-            rendererSend(NAMES.winLyric.get_lyric_info, 'status')
+            setTimeout(() => {
+              rendererSend(NAMES.winLyric.get_lyric_info, 'status')
+            })
           })
         case 'music_info':
           this.musicInfo.name = data.name
@@ -330,10 +355,12 @@ export default {
       rendererSend(NAMES.winLyric.close)
     },
     setLyric() {
+      const extendedLyrics = []
+      if (this.isShowLyricTranslation && this.lyrics.tlyric) extendedLyrics.push(this.lyrics.tlyric)
+      if (this.isShowLyricRoma && this.lyrics.rlyric) extendedLyrics.push(this.lyrics.rlyric)
       window.lrc.setLyric(
         this.isPlayLxlrc && this.lyrics.lxlyric ? this.lyrics.lxlyric : this.lyrics.lyric,
-        this.isShowLyricTranslation && this.lyrics.tlyric ? this.lyrics.tlyric : '',
-        // (this.isShowLyricTranslation && this.lyrics.tlyric ? (this.lyrics.tlyric + '\n') : '') + (this.lyrics.lyric || ''),
+        extendedLyrics,
       )
     },
   },
@@ -362,11 +389,11 @@ export default {
         display: inline-block;
       }
 
-      .font, .translation {
+      .font, .extended {
         cursor: grab;
       }
 
-      .translation {
+      .extended {
         transition: @transition-theme !important;
         transition-property: font-size, color;
         font-size: 0.8em;
@@ -383,7 +410,7 @@ export default {
         .line {
           color: @color-theme;
         }
-        .translation {
+        .extended {
           color: @color-theme;
         }
         // span {
@@ -452,7 +479,7 @@ export default {
 .draging {
   :global {
     .lrc-content {
-      .font, .translation {
+      .font, .extended {
         cursor: grabbing;
       }
     }
@@ -462,7 +489,7 @@ export default {
   :global {
     .lrc-content {
       &.active {
-        .translation {
+        .extended {
           font-size: .94em;
         }
         span {
@@ -495,7 +522,7 @@ each(@themes, {
       :global {
         .lrc-content {
           &.active {
-            .translation {
+            .extended {
               color: ~'@{color-@{value}-theme}';
             }
             .line {
